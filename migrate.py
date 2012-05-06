@@ -239,7 +239,10 @@ def handleTicket( num, ticket, tr_map, closed_status_ids):
         group = []
 
     status_id = ticket.status_id.string
+
     submitter = ticket.submitter.string
+
+    assignee = tr_map["people"].get(ticket.assignee.string)
 
     labels = []
     for l in cat:
@@ -262,11 +265,12 @@ def handleTicket( num, ticket, tr_map, closed_status_ids):
     print "-- title:", title
     print "-- labels:", labels
     print "-- closed:", closed
+    print "-- assignee:", assignee
     print "-- body:", body[0:400].replace('\n', ' ') + "..."
 
     print "\n-- Creating issue..."
     if not opts.dry_run:
-        response = createIssue( { "title": title, "body": body, "labels": labels } )
+        response = createIssue( { "title": title, "body": body, "labels": labels, "assignee": assignee } )
         issue_num = response['number']
     else:
         issue_num = "0"
@@ -295,9 +299,11 @@ def handleTicket( num, ticket, tr_map, closed_status_ids):
 def resolveTranslations(tracker):
     cat_tr = {}
     grp_tr = {}
+    people = {}
     if label_translation is not None:
-        cat_tr = label_translation["categories"]
-        grp_tr = label_translation["groups"]
+        cat_tr = label_translation.get("categories", {})
+        grp_tr = label_translation.get("groups", {})
+        people = label_translation.get("people", {})
 
     cat_map = {}
     grp_map = {}
@@ -338,7 +344,8 @@ def resolveTranslations(tracker):
         if l not in labels:
             labels.append(l)
 
-    return { "categories": cat_map, "groups": grp_map, "labels": labels }
+    return { "categories": cat_map, "groups": grp_map, "labels": labels, \
+             "people": people }
 
 def handleTracker(tracker):
     global pwd, session

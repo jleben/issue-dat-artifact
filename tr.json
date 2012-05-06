@@ -9,5 +9,17 @@
     "groups": {
         "v1.0 (example)": null,
         "Qt + Cocoa": ["Qt GUI", "Mac OS X"]
+    },
+    "people":
+    {
+        "jleben": "jleben",
+        "danstowell": "danstowell",
+        "lijon": "lijon",
+        "jamshark70": "jamshark70",
+        "felix crucial": "crucialfelix",
+        "zlb-dev": "miguel-negrao",
+        "mullmusik": "muellmusik",
+        "timblech": "timblechmann"
     }
+
 }
