@@ -241,7 +241,16 @@ def handleTicket( num, ticket, tr_map, closed_status_ids):
     status_id = ticket.status_id.string
     submitter = ticket.submitter.string
 
-    labels = cat + group + opts.extra_labels
+    labels = []
+    for l in cat:
+        if l not in labels:
+            labels.append(l)
+    for l in group:
+        if l not in labels:
+            labels.append(l)
+    for l in opts.extra_labels:
+        if l not in labels:
+            labels.append(l)
 
     title = ticket.summary.string
 
@@ -325,7 +334,9 @@ def resolveTranslations(tracker):
         id = group.id.string
         store_tr( item, id, grp_tr, grp_map, labels )
 
-    labels += opts.extra_labels
+    for l in opts.extra_labels:
+        if l not in labels:
+            labels.append(l)
 
     return { "categories": cat_map, "groups": grp_map, "labels": labels }
 
@@ -368,7 +379,7 @@ def handleTracker(tracker):
             i = i + 1
             print "\n-- Creating label '%s' [%d/%d] ..." % (label, i, label_count)
             if not opts.dry_run:
-                createLabel( {"name": label, "color": "FFFFFF"} )
+                createLabel( {"name": label, "color": "000000"} )
             print "-- Done."
 
     i = 0
