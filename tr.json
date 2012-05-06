@@ -1,6 +1,6 @@
 {
     "categories": {
-        "Audio synthesis server": "audio synthesis server",
+        "Audio synthesis server": "scsynth",
         "SC Language": "language",
         "Linux client": "Linux",
         "OSX client": "Mac OS X",
