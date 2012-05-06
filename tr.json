@@ -1,0 +1,13 @@
+{
+    "categories": {
+        "Audio synthesis server": "audio synthesis server",
+        "SC Language": "language",
+        "Linux client": "Linux",
+        "OSX client": "Mac OS X",
+        "Interface (example)": null
+    },
+    "groups": {
+        "v1.0 (example)": null,
+        "Qt + Cocoa": ["Qt GUI", "Mac OS X"]
+    }
+}
