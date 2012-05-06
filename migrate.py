@@ -206,7 +206,8 @@ def handleComment( num, comment, issue_num ):
     id = comment.id.string
     print "\n--------------- start comment", id, num
     submitter = comment.submitter.string
-    body = "[Comment migrated from SourceForge, submitted by '%s'.]\n\n%s" % (submitter, prettify_body(comment.details.string))
+    body = "[Comment migrated from SourceForge | Submitted by '%s']\n\n%s" \
+        % (submitter, prettify_body(comment.details.string))
     print "-- submitter:", submitter
     print "-- body:", body[0:400].replace('\n', ' ') + "..."
 
@@ -244,7 +245,7 @@ def handleTicket( num, ticket, tr_map, closed_status_ids):
 
     title = ticket.summary.string
 
-    body = "[Issue migrated from SourceForge, id '%s', submitted by '%s'.]\n[%s]\n\n%s" \
+    body = "[Issue migrated from SourceForge | ID: %s | Submitted by '%s']\n[%s]\n\n%s" \
         % (id, submitter, ticket.url.string, prettify_body(ticket.details.string))
 
     closed = status_id in closed_status_ids
