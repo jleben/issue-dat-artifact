@@ -162,23 +162,23 @@ def createIssue(issue):
     i = json.dumps(issue)
     if verbose:
         print i
-    o = handleError( requests.post(issues_url, auth=(user, pwd), data=i) )
+    o = handleError( session.post(issues_url, data=i) )
     return json.loads(o.text)
 
 def closeIssue(num):
     url = issues_url + "/" + str(num)
-    o = handleError( requests.patch(url, auth=(user, pwd), data='{"state": "closed"}') )
+    o = handleError( session.patch(url, data='{"state": "closed"}') )
     return json.loads(o.text)
 
 def createComment(issue_num, comment):
     url = issues_url + "/%d/comments" % issue_num
     i = json.dumps(comment)
-    o = handleError( requests.post(url, auth=(user, pwd), data=i) )
+    o = handleError( session.post(url, data=i) )
     return json.loads(o.text)
 
 def createLabel(label):
     i = json.dumps(label)
-    o = requests.post(labels_url, auth=(user, pwd), data=i)
+    o = session.post(labels_url, data=i)
     r = json.loads(o.text)
     if o.status_code != 201:
         if r["errors"][0]["code"] == "already_exists":
@@ -329,7 +329,7 @@ def resolveTranslations(tracker):
     return { "categories": cat_map, "groups": grp_map, "labels": labels }
 
 def handleTracker(tracker):
-    global pwd
+    global pwd, session
 
     tracker_name = tracker.find("name").string
     print "\n############### tracker: " + tracker_name
@@ -354,6 +354,10 @@ def handleTracker(tracker):
 
     userVerify("Shall we continue?")
     pwd = getpass('%s\'s GitHub password: ' % user)
+
+    # start a Requests session
+
+    session = requests.session( auth=(user, pwd), prefetch=True )
 
     if opts.create_labels:
         labels = tr_map["labels"]
