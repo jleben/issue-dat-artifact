@@ -17,14 +17,20 @@ parser = optparse.OptionParser(usage='Usage: %prog [options] sfexport.xml tracke
 parser.add_option('-u', '--user', dest='user', action='store', \
     help='User for authentication, if different than repository owner.')
 
-parser.add_option('-l', '--label', dest='extra_labels', action='append', \
+parser.add_option('-l', '--label', dest='extra_labels', action='append', default=[], \
     help='Add an extra label to apply to all issues.')
+
+parser.add_option('-t', '--label-translation', dest='label_translation', action='store', \
+    help='Label translation file.')
 
 parser.add_option('-c', '--closing-status', dest='closed_statuses', action='append', \
     help='Add a status to the list of SF statuses that will close the issue.')
 
 parser.add_option('-s', '--start', dest='start_id', action='store', type="int", default=-1, \
     help='ID of the first ticket to migrate; useful for aborted runs.')
+
+parser.add_option('-m', '--max', dest='max_count', action='store', type="int", default=-1, \
+    help='Maximum amount of tickets to process.')
 
 parser.add_option('--no-create-labels', action="store_false", dest="create_labels", default=True, \
     help="Assume all required labels are already created in the github repository, and don't try to create them.")
@@ -36,24 +42,50 @@ opts, args = parser.parse_args()
 
 try:
     input_file, tracker_name, full_repo = args
-    if opts.user is None:
-        user = full_repo.split('/')[0]
-    else:
-        user = opts.user
 except (ValueError, IndexError):
     parser.print_help()
     sys.exit(1)
 
+# get user for authentication either from options, or from repository
+if opts.user is None:
+    user = full_repo.split('/')[0]
+else:
+    user = opts.user
+
+# load label translation, if given
+
+label_translation = None
+if opts.label_translation is not None:
+    print "-- Loading translation..."
+    fd = open(opts.label_translation)
+    data = fd.read()
+    label_translation = json.loads(data)
+    print "-- Done."
+
+# init closing statuses, if not given
 if opts.closed_statuses is None:
     opts.closed_statuses = ["closed", "deleted"]
 
 verbose = False
+
+print "\n############### options:"
+print "-- github repository:", full_repo
+if opts.user is not None:
+    print "-- github user:", user
+print "-- extra labels:", opts.extra_labels
+print "-- closing statuses:", opts.closed_statuses
+print "-- start at ticket:", opts.start_id
+print "-- max tickets:", opts.max_count
+print "-- create labels:", opts.create_labels
+print "-- dry run:", opts.dry_run
 
 # globals #
 
 github_url = "https://api.github.com"
 issues_url = github_url + ("/repos/%s/issues" % full_repo)
 labels_url = github_url + ("/repos/%s/labels" % full_repo)
+
+proc_count = 0
 
 # # # # #
 
@@ -72,13 +104,43 @@ def userVerify(txt, abortOnFail=True):
     return True
 
 def labelify(string):
-    x = string.lower()
+    x = string
     x = re.sub(r'[^\w._()]+', ' ', x)
     x = x.rstrip(' ')
     return x
 
 def pretty_print( json_string ):
     print json.dumps( json.loads(json_string), indent=3 )
+
+def print_translations(tr_map):
+    print "-- label translation:"
+
+    print "categories:"
+    cats = tr_map["categories"].items()
+    for item in cats:
+        string = "    [%s] %s ->" % (item[0], item[1][0])
+        for tr in item[1][1]:
+            string += " '%s'" % tr
+        print string
+
+    print "groups:"
+    grps = tr_map["groups"].items()
+    for item in grps:
+        string = "    [%s] %s ->" % (item[0], item[1][0])
+        for tr in item[1][1]:
+            string += " '%s'" % tr
+        print string
+
+    labels = tr_map["labels"]
+    print "labels to create:"
+    for l in labels:
+        print "    " + l
+
+def prettify_body(body):
+    body = re.sub(r'^Logged In: (NO|YES)\s*\n', '', body)
+    body = re.sub(r'^user_id=\d+\n', '', body)
+    body = re.sub(r'^Originator: (NO|YES)\n', '', body)
+    return body
 
 def handleError(response):
     #if response.status_code != requests.codes.ok:
@@ -95,7 +157,6 @@ def handleError(response):
         raise
 
     return response
-
 
 def createIssue(issue):
     i = json.dumps(issue)
@@ -145,7 +206,7 @@ def handleComment( num, comment, issue_num ):
     id = comment.id.string
     print "\n--------------- start comment", id, num
     submitter = comment.submitter.string
-    body = "[Comment migrated from SourceForge, submitted by '%s'.]\n\n%s" % (submitter, comment.details.string)
+    body = "[Comment migrated from SourceForge, submitted by '%s'.]\n\n%s" % (submitter, prettify_body(comment.details.string))
     print "-- submitter:", submitter
     print "-- body:", body[0:400].replace('\n', ' ') + "..."
 
@@ -154,28 +215,37 @@ def handleComment( num, comment, issue_num ):
 
     print "--------------- end comment:", id, num
 
-def handleTicket( num, ticket, categories, groups, closed_status_ids, extra_labels ):
+def handleTicket( num, ticket, tr_map, closed_status_ids):
+    global proc_count
+
     id = ticket.id.string
     if int(id) < opts.start_id:
         print "\n############### skipping ticket:", id, num
         return
 
-    cat = categories[ticket.category_id.string]
-    group = groups[ticket.group_id.string]
+    proc_count = proc_count + 1
+
+    print "\n############### start ticket:", id, num, "- [%d/%d]" % (proc_count, opts.max_count)
+
+    try:
+        cat = tr_map["categories"][ticket.category_id.string][1]
+    except KeyError:
+        cat = []
+
+    try:
+        group = tr_map["groups"][ticket.group_id.string][1]
+    except KeyError:
+        group = []
+
     status_id = ticket.status_id.string
     submitter = ticket.submitter.string
 
-    print "\n############### start ticket:", id, num
-
-    labels = [cat, group]
-    if extra_labels is not None:
-        for l in extra_labels:
-            labels.append( l )
+    labels = cat + group + opts.extra_labels
 
     title = ticket.summary.string
 
     body = "[Issue migrated from SourceForge, id '%s', submitted by '%s'.]\n[%s]\n\n%s" \
-        % (id, submitter, ticket.url.string, ticket.details.string)
+        % (id, submitter, ticket.url.string, prettify_body(ticket.details.string))
 
     closed = status_id in closed_status_ids
 
@@ -203,32 +273,69 @@ def handleTicket( num, ticket, categories, groups, closed_status_ids, extra_labe
     i = 0
     for comment in comments:
         i = i + 1
-        num = "[%d/%d]" % (i, comment_count)
-        handleComment( num, comment, issue_num )
+        c_num = "[%d/%d]" % (i, comment_count)
+        handleComment( c_num, comment, issue_num )
 
     print "\n############### end ticket:", id, num
 
-def handleTracker(tracker, extra_labels=None):
+    if proc_count == opts.max_count:
+        print "\n-- Reached maximum amount of tickets to process. Aborting."
+        sys.exit(0)
+
+def resolveTranslations(tracker):
+    cat_tr = {}
+    grp_tr = {}
+    if label_translation is not None:
+        cat_tr = label_translation["categories"]
+        grp_tr = label_translation["groups"]
+
+    cat_map = {}
+    grp_map = {}
+    labels = []
+
+    def store_tr(item, id, src, dst, labels):
+        # resolve translation, and make sure it's a list
+        if item in src:
+            trs = src[item]
+            if not isinstance(trs, list):
+                trs = [trs]
+        else:
+            trs = [item]
+
+        # store among all labels, weeding out Nones
+        trs2 = []
+        for tr in trs:
+            if tr is not None:
+                trs2.append(tr)
+                if tr not in labels:
+                    labels.append(tr)
+
+        # store in the map
+        dst[id] = (item, trs2)
+
+    for category in tracker.categories('category', recursive=False):
+        item = category.category_name.string
+        id = category.id.string
+        store_tr( item, id, cat_tr, cat_map, labels )
+
+
+    for group in tracker.groups('group', recursive=False):
+        item = group.group_name.string
+        id = group.id.string
+        store_tr( item, id, grp_tr, grp_map, labels )
+
+    labels += opts.extra_labels
+
+    return { "categories": cat_map, "groups": grp_map, "labels": labels }
+
+def handleTracker(tracker):
     global pwd
 
     tracker_name = tracker.find("name").string
     print "\n############### tracker: " + tracker_name
 
-    labels = []
-
-    categories = {}
-    for category in tracker.categories('category', recursive=False):
-        label = labelify(category.category_name.string)
-        labels.append(label)
-        categories[category.id.string] = label
-    print "-- categories:", categories
-
-    groups = {}
-    for group in tracker.groups('group', recursive=False):
-        label = labelify(group.group_name.string)
-        labels.append(label)
-        groups[group.id.string] = label
-    print "-- groups:", groups
+    tr_map = resolveTranslations(tracker)
+    print_translations(tr_map)
 
     statuses = []
     closed_status_ids = []
@@ -243,23 +350,15 @@ def handleTracker(tracker, extra_labels=None):
     ticket_count = len(tickets)
     print "-- ticket count:", ticket_count
 
-    print "\n############### options:"
-    print "-- github repository:", full_repo
-    if opts.user is not None:
-        print "-- github user:", user
-    print "-- extra labels:", extra_labels
-    print "-- closing statuses:", opts.closed_statuses
-    print "-- start at ticket:", opts.start_id
-    print "-- create labels:", opts.create_labels
-    print "-- dry run:", opts.dry_run
     print "\n"
 
     userVerify("Shall we continue?")
     pwd = getpass('%s\'s GitHub password: ' % user)
 
     if opts.create_labels:
-        i = 0
+        labels = tr_map["labels"]
         label_count = len(labels)
+        i = 0
         for label in labels:
             i = i + 1
             print "\n-- Creating label '%s' [%d/%d] ..." % (label, i, label_count)
@@ -271,7 +370,7 @@ def handleTracker(tracker, extra_labels=None):
     for ticket in tickets:
         i = i + 1
         num = "[%d/%d]" % (i, ticket_count)
-        handleTicket(num, ticket, categories, groups, closed_status_ids, extra_labels)
+        handleTicket(num, ticket, tr_map, closed_status_ids)
 
 def process_tracker(tracker_name):
     soup = BeautifulSoup(open(input_file), "xml")
@@ -287,7 +386,7 @@ def process_tracker(tracker_name):
 
     #trackers = soup.document.find("trackers", recursive=False).findAll("tracker", recursive=False)
 
-    handleTracker(tracker, opts.extra_labels)
+    handleTracker(tracker)
 
 #createIssue( {"title": "what a title", "body": "", "labels": ["1.2"]} )
 
